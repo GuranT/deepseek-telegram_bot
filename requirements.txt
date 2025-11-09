@@ -1,4 +1,4 @@
-pytelegrambotapi==4.15.0
+python-telegram-bot==20.7
 requests==2.31.0
 cachetools==5.3.2
 flask==2.3.3
