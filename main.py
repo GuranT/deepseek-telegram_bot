@@ -1,132 +1,65 @@
 import os
-import time
 import logging
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+import telebot
+import requests
 
-# Импорт наших модулей
-from config import Config
-from utils.helpers import setup_logging, send_large_message, get_user_info, safe_truncate
-from utils.deepseek_api import DeepSeekAPI
-from security import SecurityManager
-from monitoring import MetricsCollector
+# ===== КОНФИГУРАЦИЯ =====
+BOT_TOKEN = os.environ.get('BOT_TOKEN')
+DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY')
 
-# Настройка логирования
-setup_logging()
-logger = logging.getLogger(__name__)
+print("🔧 Проверка переменных...")
+print(f"BOT_TOKEN: {'✅' if BOT_TOKEN else '❌'}")
+print(f"DEEPSEEK_API_KEY: {'✅' if DEEPSEEK_API_KEY else '❌'}")
 
-# Инициализация компонентов
-deepseek_api = DeepSeekAPI()
-security_manager = SecurityManager()
-metrics_collector = MetricsCollector()
+if not BOT_TOKEN:
+    print("❌ ОШИБКА: BOT_TOKEN не установлен!")
+    exit(1)
 
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /start"""
-    user_info = get_user_info(update)
-    logger.info(f"User {user_info} started the bot")
-    
+if not DEEPSEEK_API_KEY:
+    print("❌ ОШИБКА: DEEPSEEK_API_KEY не установлен!")
+    exit(1)
+
+# Создаем бота
+bot = telebot.TeleBot(BOT_TOKEN)
+
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
     welcome_text = """
 🤖 *DeepSeek AI Assistant*
 
-Добро пожаловать! Я ваш умный помощник на основе AI.
+Бот успешно запущен! 🎉
 
-*Что я умею:*
-• 💬 Отвечать на любые вопросы
-• 💻 Помогать с программированием
-• 📚 Объяснять сложные темы
-• 🌐 Переводить тексты
-• 💡 Генерировать идеи
-
-*Команды:*
-/start - Запуск бота
-/help - Помощь и инструкции
-/clear - Очистить историю диалога
-/info - Информация о боте
-/stats - Статистика использования
-
-Просто напишите ваш вопрос!
+Просто напишите ваш вопрос, и я помогу!
     """
-    
-    await update.message.reply_text(welcome_text, parse_mode='Markdown')
+    bot.reply_to(message, welcome_text, parse_mode='Markdown')
 
-async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик команды /stats"""
-    stats = metrics_collector.get_stats()
-    
-    if not stats:
-        await update.message.reply_text("📊 Статистика пока недоступна")
-        return
-    
-    stats_text = f"""
-📊 *Статистика бота*
+@bot.message_handler(commands=['test'])
+def test_command(message):
+    """Тестовая команда для проверки работы"""
+    bot.reply_to(message, "✅ Бот работает корректно!")
 
-*Общая статистика:*
-• Всего запросов: {stats['total_requests']}
-• Успешных: {stats['successful_requests']}
-• Ошибок: {stats['failed_requests']}
-• Успешность: {stats['success_rate']:.1f}%
-
-*Производительность:*
-• Среднее время ответа: {stats['avg_processing_time']:.2f}с
-• Время работы: {stats['uptime_minutes']:.1f} минут
-
-*Ваш ID:* {update.effective_user.id}
-    """
-    
-    await update.message.reply_text(stats_text, parse_mode='Markdown')
-
-async def handle_text_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработчик текстовых сообщений"""
-    user_message = update.message.text
-    user_id = update.effective_user.id
-    user_info = get_user_info(update)
-    
-    start_time = time.time()
-    success = False
-    
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
     try:
-        # Проверка безопасности
-        if not security_manager.check_rate_limit(user_id):
-            await update.message.reply_text("⚠️ Слишком много запросов. Подождите минуту.")
-            return
-        
-        if security_manager.contains_malicious_content(user_message):
-            await update.message.reply_text("❌ Сообщение содержит подозрительный контент.")
-            logger.warning(f"Malicious content detected from {user_info}")
-            return
-        
-        # Очистка входных данных
-        sanitized_message = security_manager.sanitize_input(user_message)
-        
-        logger.info(f"Message from {user_info}: {safe_truncate(sanitized_message)}")
+        user_text = message.text
         
         # Показываем индикатор набора
-        await update.message.chat.send_action(action="typing")
+        bot.send_chat_action(message.chat.id, 'typing')
         
-        # Получаем ответ от DeepSeek
-        answer = deepseek_api.ask_deepseek(user_id, sanitized_message)
-        success = True
+        # Простой ответ для тестирования
+        if user_text.lower() == 'привет':
+            answer = "Привет! Я работаю! 🎉"
+        else:
+            answer = f"Вы написали: {user_text}\n\nБот работает, DeepSeek API будет подключено позже."
         
-        # Отправляем ответ
-        await send_large_message(context, update.effective_chat.id, answer)
-        
-        logger.info(f"Response sent to {user_info}")
-        
+        bot.reply_to(message, answer)
+                
     except Exception as e:
-        logger.error(f"Error processing message from {user_info}: {e}")
-        error_text = "❌ Произошла непредвиденная ошибка. Попробуйте позже."
-        await update.message.reply_text(error_text)
-    finally:
-        # Записываем метрики
-        processing_time = time.time() - start_time
-        metrics_collector.record_request(user_id, processing_time, success)
+        print(f"❌ Ошибка: {e}")
+        bot.reply_to(message, "❌ Ошибка, попробуйте еще раз")
 
-# Добавьте новый обработчик в main()
-def main():
-    """Основная функция запуска бота"""
-    # ... существующий код ...
-    
-    # Добавьте новый обработчик команд
-    application.add_handler(CommandHandler("stats", stats_command))
-    
-    # ... остальной код ...
+if __name__ == '__main__':
+    print("🚀 Бот запускается...")
+    print("✅ Все зависимости загружены")
+    print("📍 Ожидание сообщений...")
+    bot.infinity_polling()
